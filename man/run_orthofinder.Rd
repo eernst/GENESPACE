@@ -3,8 +3,6 @@
 \name{run_orthofinder}
 \alias{run_orthofinder}
 \alias{blkwise_orthofinder}
-\alias{run_ofFromObj}
-\alias{read_hits4of}
 \title{Build orthofinder database for GENESPACE}
 \usage{
 run_orthofinder(gsParam, overwrite = FALSE)
@@ -16,19 +14,6 @@ blkwise_orthofinder(
   genomeIDs = NULL,
   minGenes4of = 40
 )
-
-run_ofFromObj(
-  blast00,
-  blast01,
-  blast10,
-  blast11,
-  pep0,
-  pep1,
-  writeDir,
-  path2orthofinder
-)
-
-read_hits4of(gsParam, genome1, genome2)
 }
 \arguments{
 \item{gsParam}{A list of genespace parameters. This should be created
@@ -46,6 +31,8 @@ character vector of genomeIDs).}
 \item{minGenes4of}{integer specifying the minimum number of genes needed to
 run orthofinder.}
 
+\item{path2orthofinder}{file.path pointing to a valid orthofinder install}
+
 \item{blast00}{data.table containing the blast hits of genome1 to genome1}
 
 \item{blast01}{data.table containing the blast hits of genome1 to genome2}
@@ -60,8 +47,6 @@ run orthofinder.}
 
 \item{writeDir}{file path pointing to a directory within which to run f}
 
-\item{path2orthofinder}{file.path pointing to a valid orthofinder install}
-
 \item{genome1}{character string specifying genome1}
 
 \item{genome2}{character string specifying genome2}
@@ -75,10 +60,6 @@ generating code to run outside of R, or re-running orthofinder on pre-
 computed blast results within syntenic regions.
 
 \code{blkwise_orthofinder} blkwise_orthofinder
-
-\code{run_ofFromObj} run_ofFromObj
-
-\code{read_hits4of} read_hits4of
 }
 \details{
 ...

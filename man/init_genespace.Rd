@@ -95,8 +95,8 @@ A list containing paths to the raw files. If a file is not found,
 path is returned as null and a warning is printed.
 }
 \description{
-\code{init_genespace} Searches for desired genome files in the
-raw genome repo director.
+\code{init_genespace} This is the first step of GENESPACE and produces a
+list containing all necessary data and parameters for a run.
 }
 \details{
 Simple directory parser to find and check the paths to all
@@ -107,65 +107,25 @@ annotation and assembly files.
 runwd <- file.path(getwd(), "testGenespace")
 make_exampleDataDir(writeDir = runwd)
 
-#############################################################################
-###### Default method, can run orthofinder outside of R on a cluster etc. ###
 gpar <- init_genespace(
   genomeIDs = c("human","chimp","rhesus"),
   speciesIDs = c("human","chimp","rhesus"),
   versionIDs = c("human","chimp","rhesus"),
-  ploidy = rep(1,3),
-  wd = runwd,
-  nCores = 4,
-  gffString = "gff",
-  pepString = "pep",
-  path2orthofinder = "orthofinder",
-  path2mcscanx = "~/MCScanX",
-  rawGenomeDir = file.path(runwd, "rawGenomes"))
-
-#############################################################################
-###### Slower but more accurate inference  ##################################
-###### especially for distantly related genomes or ploidy > 1 ###############
-# add in orthofinder in block orthogroup ...
-gpar <- init_genespace(
-  genomeIDs = c("human","chimp","rhesus"),
-  speciesIDs = c("human","chimp","rhesus"),
-  versionIDs = c("human","chimp","rhesus"),
-  ploidy = rep(1,3),
-  wd = runwd,
-  nCores = 4,
-  orthofinderInBlk = TRUE,
-  gffString = "gff",
-  pepString = "pep",
-  path2orthofinder = "orthofinder",
-  path2mcscanx = "~/MCScanX",
-  rawGenomeDir = file.path(runwd, "rawGenomes"))
-
-#############################################################################
-###### Fast visualization of closely related genome #########################
-# just a quick visualization ... not recommended for a full run, although
-# probably not much less sensitive with closely related genomes
-# **NOTE** this method can only be done when orthofinder is installed in the
-# path for this R session (e.g. opening R from a conda env with orthofinder)
-# **NOTE** increasing minPepLen results in a loss of fidelity, but an
-# increase in speed.
-
-# This is the parameterization used in the help files.
-
-gpar <- init_genespace(
-  genomeIDs = c("human","chimp","rhesus"),
-  speciesIDs = c("human","chimp","rhesus"),
-  versionIDs = c("human","chimp","rhesus"),
+  outgroup = NULL,
   ploidy = rep(1,3),
   diamondMode = "fast",
   orthofinderMethod = "fast",
   wd = runwd,
+  orthofinderInBlk = FALSE,
+  overwrite = F,
+  verbose = T,
   nCores = 4,
   minPepLen = 50,
   gffString = "gff",
   pepString = "pep",
   path2orthofinder = "orthofinder",
-  path2mcscanx = "~/MCScanX",
+  path2diamond = "diamond",
+  path2mcscanx = "~/Documents/comparative_genomics/programs/MCScanX",
   rawGenomeDir = file.path(runwd, "rawGenomes"))
-
 }
 }

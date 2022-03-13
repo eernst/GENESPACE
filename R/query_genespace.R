@@ -173,7 +173,6 @@ query_pangenome <- function(pg,
   return(list(raw = p[wh,], pav = pav[wh,], cnts = pc[wh,]))
 }
 
-
 #' @title write_phytozome
 #' @description
 #' \code{write_phytozome} write_phytozome

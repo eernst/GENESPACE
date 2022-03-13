@@ -24,9 +24,18 @@
 #'   \item{attributes}{parsed to just the gene name, appended with locus=}
 #' }
 #'
-#' @details ...
+#' @details The raw data can be found here:
+#'  \describe{
+#'   \item{human peptide}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/reference/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_translated_cds.faa.gz}
+#'   \item{human gff}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/reference/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz}
+#'   \item{chimp peptide}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Pan_troglodytes/latest_assembly_versions/GCF_002880755.1_Clint_PTRv2/GCF_002880755.1_Clint_PTRv2_translated_cds.faa.gz}
+#'   \item{chimp gff}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Pan_troglodytes/latest_assembly_versions/GCF_002880755.1_Clint_PTRv2/GCF_002880755.1_Clint_PTRv2_genomic.gff.gz}
+#'   \item{rhesus peptide}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_translated_cds.faa.gz}
+#'   \item{rhesus gff}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.gff.gz}
+#' }
 #'
 #' @return ...
+#'
 #' @examples
 #' \dontrun{
 #' make_exampleData(writeDir = "inst/extdata")
@@ -44,6 +53,52 @@
 #' @importFrom rtracklayer readGFF
 #' @export
 make_exampleData <- function(writeDir){
+
+  ##############################################################################
+  # -- ad hoc function to download the raw data
+  download_rawData <- function(writeDir){
+
+    ############################################################################
+    # -- ad hoc function to find the raw data
+    find_rawData <- function(){
+      ftps <- list(
+        human = list(GRCh38.p13 = list(
+          pep = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/reference/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_translated_cds.faa.gz",
+          gff = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/reference/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz")),
+        chimp = list(Clint_PTRv2 = list(
+          pep = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Pan_troglodytes/latest_assembly_versions/GCF_002880755.1_Clint_PTRv2/GCF_002880755.1_Clint_PTRv2_translated_cds.faa.gz",
+          gff = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Pan_troglodytes/latest_assembly_versions/GCF_002880755.1_Clint_PTRv2/GCF_002880755.1_Clint_PTRv2_genomic.gff.gz")),
+        rhesus = list(Mmul_10 = list(
+          pep = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_translated_cds.faa.gz",
+          gff = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.gff.gz")))
+      return(ftps)
+    }
+
+    wd <- writeDir
+    ftps <- find_rawData()
+    # wd <- "~/Desktop/GENESPACE/inst/extdata"
+    if(!dir.exists(wd))
+      dir.create(wd, recursive = T)
+    out <- sapply(names(ftps), USE.NAMES = T, simplify = F, function(i){
+      cat(i,": peptides ... ")
+      pepf <- file.path(wd, sprintf("%s_%s_pep.fa.gz", i, names(ftps[[i]])))
+      gfff <- file.path(wd, sprintf("%s_%s_gene.gff.gz", i, names(ftps[[i]])))
+      download.file(
+        url = ftps[[i]][[1]][[1]],
+        destfile = pepf,
+        method = "wget",
+        quiet = T)
+      cat("Done! gff: ...")
+      download.file(
+        url = ftps[[i]][[1]][[2]],
+        destfile = gfff,
+        quiet = T,
+        method = "wget")
+      cat(" Done!\n")
+      return(list(pep = pepf, gff = gfff))
+    })
+    return(out)
+  }
 
   chr <- chromosome <- end <- gene <- gene_biotype <- isBest <- nGene <-
     nbp <- segments <- seqid <- start <- NULL
@@ -141,109 +196,54 @@ make_exampleData <- function(writeDir){
   cat("Done!")
 }
 
-#' @title download_rawData
-#' @description
-#' \code{download_rawData} download_rawData
-#' @rdname genespaceData
-#' @importFrom utils download.file
-#' @export
-download_rawData <- function(writeDir){
-  wd <- writeDir
-  ftps <- find_rawData()
-  # wd <- "~/Desktop/GENESPACE/inst/extdata"
-  if(!dir.exists(wd))
-    dir.create(wd, recursive = T)
-  out <- sapply(names(ftps), USE.NAMES = T, simplify = F, function(i){
-    cat(i,": peptides ... ")
-    pepf <- file.path(wd, sprintf("%s_%s_pep.fa.gz", i, names(ftps[[i]])))
-    gfff <- file.path(wd, sprintf("%s_%s_gene.gff.gz", i, names(ftps[[i]])))
-    download.file(
-      url = ftps[[i]][[1]][[1]],
-      destfile = pepf,
-      method = "wget",
-      quiet = T)
-    cat("Done! gff: ...")
-    download.file(
-      url = ftps[[i]][[1]][[2]],
-      destfile = gfff,
-      quiet = T,
-      method = "wget")
-    cat(" Done!\n")
-    return(list(pep = pepf, gff = gfff))
-  })
-  return(out)
-}
-
-#' @title location_ofRawData
-#' @description
-#' \code{location_ofRawData} location_ofRawData
-#' @rdname genespaceData
-#' @export
-find_rawData <- function(){
-  ftps <- list(
-    human = list(GRCh38.p13 = list(
-      pep = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/reference/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_translated_cds.faa.gz",
-      gff = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/reference/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz")),
-    chimp = list(Clint_PTRv2 = list(
-      pep = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Pan_troglodytes/latest_assembly_versions/GCF_002880755.1_Clint_PTRv2/GCF_002880755.1_Clint_PTRv2_translated_cds.faa.gz",
-      gff = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Pan_troglodytes/latest_assembly_versions/GCF_002880755.1_Clint_PTRv2/GCF_002880755.1_Clint_PTRv2_genomic.gff.gz")),
-    rhesus = list(Mmul_10 = list(
-      pep = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_translated_cds.faa.gz",
-      gff = "https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.gff.gz")))
-  return(ftps)
-}
-
-#' @title find_exampleData
-#' @description
-#' \code{find_exampleData} find_exampleData
-#' @rdname genespaceData
-#' @export
-find_exampleData <- function(){
-  paths <- list(
-    human = list(
-      gff = system.file(
-        "extdata",
-        "human_GRCh38.p13_gene.gff.gz",
-        package = "GENESPACE",
-        mustWork = TRUE),
-      pep = system.file(
-        "extdata",
-        "human_GRCh38.p13_pep.fa.gz",
-        package = "GENESPACE",
-        mustWork = TRUE)),
-
-    chimp = list(
-      gff = system.file(
-        "extdata",
-        "chimp_Clint_PTRv2_gene.gff.gz",
-        package = "GENESPACE",
-        mustWork = TRUE),
-      pep = system.file(
-        "extdata",
-        "chimp_Clint_PTRv2_pep.fa.gz",
-        package = "GENESPACE",
-        mustWork = TRUE)),
-
-    rhesus = list(
-      gff = system.file(
-        "extdata",
-        "rhesus_Mmul_10_gene.gff.gz",
-        package = "GENESPACE",
-        mustWork = TRUE),
-      pep = system.file(
-        "extdata",
-        "rhesus_Mmul_10_pep.fa.gz",
-        package = "GENESPACE",
-        mustWork = TRUE)))
-  return(paths)
-}
-
 #' @title make_exampleDataDir
 #' @description
 #' \code{find_exampleData} find_exampleData
 #' @rdname genespaceData
 #' @export
 make_exampleDataDir <- function(writeDir){
+
+  ##############################################################################
+  # -- ad hoc function to find the example data from the package
+  find_exampleData <- function(){
+    paths <- list(
+      human = list(
+        gff = system.file(
+          "extdata",
+          "human_GRCh38.p13_gene.gff.gz",
+          package = "GENESPACE",
+          mustWork = TRUE),
+        pep = system.file(
+          "extdata",
+          "human_GRCh38.p13_pep.fa.gz",
+          package = "GENESPACE",
+          mustWork = TRUE)),
+
+      chimp = list(
+        gff = system.file(
+          "extdata",
+          "chimp_Clint_PTRv2_gene.gff.gz",
+          package = "GENESPACE",
+          mustWork = TRUE),
+        pep = system.file(
+          "extdata",
+          "chimp_Clint_PTRv2_pep.fa.gz",
+          package = "GENESPACE",
+          mustWork = TRUE)),
+
+      rhesus = list(
+        gff = system.file(
+          "extdata",
+          "rhesus_Mmul_10_gene.gff.gz",
+          package = "GENESPACE",
+          mustWork = TRUE),
+        pep = system.file(
+          "extdata",
+          "rhesus_Mmul_10_pep.fa.gz",
+          package = "GENESPACE",
+          mustWork = TRUE)))
+    return(paths)
+  }
 
   # -- find the data within the R package
   exDat <- find_exampleData()

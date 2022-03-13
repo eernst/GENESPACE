@@ -120,6 +120,106 @@ plot_riparian <- function(gsParam,
                           add2plot = FALSE){
 
   ##############################################################################
+  # -- ad hoc function to get a curved polygon
+  calc_curvePolygon <- function(start1,
+                                end1 = NULL,
+                                start2,
+                                end2 = NULL,
+                                y1,
+                                y2){
+    cosine_points <- function(){
+      npts = 1e4 # initial number of points
+      keepat = round(npts / 20) # grid to keep always
+      grid <- seq(from = 0, to = pi, length.out = npts) # grid
+      x <- (1 - cos(grid)) / max((1 - cos(grid))) # scaled cosine
+      y <- grid / max(grid) # scaled grid
+      # calculate slope for each point
+      x1 <- x[-1];  y1 <- y[-1]
+      x2 <- x[-length(x)];  y2 <- y[-length(y)]
+      s <-  (y1 - y2) / (x1 - x2)
+      # choose points that capture changes in slope
+      ds <- cumsum(abs(diff(s)))*5
+      wh <- c(1,which(!duplicated(round(ds))), length(x))
+      wh2 <- c(wh, seq(from = 0, to = length(x), by = round(keepat)))
+      wh <- c(wh, wh2)[!duplicated(c(wh, wh2))]
+      wh <- wh[order(wh)]
+      return(cbind(x[wh], y[wh]))
+    }
+
+    scaledCurve <- cosine_points()
+    if (!is.null(end1) | !is.null(end2)) {
+      tp <- rbind(
+        start1 = data.table(
+          x = start1, y = y1),
+        poly1 = data.table(
+          x = scale_between(x = scaledCurve[,1], min = start1, max = start2),
+          y = scale_between(x = scaledCurve[,2], min = y1, max = y2)),
+        start2 = data.table(x = start2, y = y2),
+        end2 = data.table(
+          x = end2, y = y2),
+        poly2 = data.table(
+          x = scale_between(x = scaledCurve[,1], min = end2, max = end1),
+          y = scale_between(x = scaledCurve[,2], min = y2, max = y1)),
+        end1 = data.table(
+          x = end1, y = y1))
+    }else{
+      tp <- data.table(
+        x = scale_between(x = scaledCurve[,1], min = start1, max = start2),
+        y = scale_between(x = scaledCurve[,2], min = y1, max = y2))
+    }
+    return(tp)
+  }
+
+  ##############################################################################
+  # -- ad hoc function to
+  round_rect <- function(xleft, ybottom, xright, ytop){
+
+    if (ytop <= ybottom)
+      stop("ytop must be > ybottom")
+    if (xleft >= xright)
+      stop("xleft must be < xright")
+
+    # measure graphics device
+    asp <- diff(par("usr")[3:4]) / diff(par("usr")[1:2])
+    dev <- dev.size()[1] / dev.size()[2]
+
+    # make a curve and split into left and right
+    radius <- (ytop - ybottom) / 2
+    centerY <- ytop - radius
+    centerX <- mean(c(xleft, xright))
+    theta <- seq(0, 2 * pi, length = 200)
+    circX <- cos(theta)
+    circY <- sin(theta)
+    leftC <- which(circX <= 0)
+    rightC <- which(circX >= 0)
+
+    xR <- circX[rightC]
+    yR <- circY[rightC]
+    ordYR <- rev(order(yR))
+    xR <- xR[ordYR]
+    yR <- yR[ordYR]
+
+    xL <- circX[leftC]
+    yL <- circY[leftC]
+    ordYL <- order(yL)
+    xL <- xL[ordYL]
+    yL <- yL[ordYL]
+
+    # project onto graphics device and scale
+    xRightS <- xright - (radius / asp / dev)
+    xLeftS <- xleft + (radius / asp / dev)
+    if (centerX < xLeftS)
+      xLeftS <- centerX
+    if (centerX > xRightS)
+      xRightS <- centerX
+    xLS <- scale_between(xL, xleft, xLeftS)
+    xRS <- scale_between(xR, xRightS, xright)
+    yLS <- scale_between(yL, ybottom, ytop)
+    yRS <- scale_between(yR, ybottom, ytop)
+    return(data.table(x = c(xRS,xLS), y = c(yRS, yLS)))
+  }
+
+  ##############################################################################
   # -- ad hoc function to draw scale bar on the riparian plot
   draw_scaleBar <- function(x, y, yspan, xspan, label, lwd, cex){
     xstart <- x - (xspan / 2)
@@ -814,113 +914,3 @@ plot_riparian <- function(gsParam,
       chrLabCex = chrLabCex,
       chrRectBuffer = chrRectBuffer))
 }
-
-#' @title convert cosine points to polygon
-#' @description
-#' \code{calc_curvePolygon} from 2d coordinates, make a curve
-#' @rdname plot_riparian
-#' @export
-calc_curvePolygon <- function(start1,
-                              end1 = NULL,
-                              start2,
-                              end2 = NULL,
-                              y1,
-                              y2){
-  cosine_points <- function(){
-    npts = 1e4 # initial number of points
-    keepat = round(npts / 20) # grid to keep always
-    grid <- seq(from = 0, to = pi, length.out = npts) # grid
-    x <- (1 - cos(grid)) / max((1 - cos(grid))) # scaled cosine
-    y <- grid / max(grid) # scaled grid
-    # calculate slope for each point
-    x1 <- x[-1];  y1 <- y[-1]
-    x2 <- x[-length(x)];  y2 <- y[-length(y)]
-    s <-  (y1 - y2) / (x1 - x2)
-    # choose points that capture changes in slope
-    ds <- cumsum(abs(diff(s)))*5
-    wh <- c(1,which(!duplicated(round(ds))), length(x))
-    wh2 <- c(wh, seq(from = 0, to = length(x), by = round(keepat)))
-    wh <- c(wh, wh2)[!duplicated(c(wh, wh2))]
-    wh <- wh[order(wh)]
-    return(cbind(x[wh], y[wh]))
-  }
-
-  scaledCurve <- cosine_points()
-  if (!is.null(end1) | !is.null(end2)) {
-    tp <- rbind(
-      start1 = data.table(
-        x = start1, y = y1),
-      poly1 = data.table(
-        x = scale_between(x = scaledCurve[,1], min = start1, max = start2),
-        y = scale_between(x = scaledCurve[,2], min = y1, max = y2)),
-      start2 = data.table(x = start2, y = y2),
-      end2 = data.table(
-        x = end2, y = y2),
-      poly2 = data.table(
-        x = scale_between(x = scaledCurve[,1], min = end2, max = end1),
-        y = scale_between(x = scaledCurve[,2], min = y2, max = y1)),
-      end1 = data.table(
-        x = end1, y = y1))
-  }else{
-    tp <- data.table(
-      x = scale_between(x = scaledCurve[,1], min = start1, max = start2),
-      y = scale_between(x = scaledCurve[,2], min = y1, max = y2))
-  }
-  return(tp)
-}
-
-#' @title calculate coordinates for rounded rectange polygons
-#' @description
-#' \code{round_rect} from x-y coordinates, make a rounded rectangle
-#' @rdname plot_riparian
-#' @importFrom graphics par
-#' @importFrom grDevices dev.size
-#' @export
-round_rect <- function(xleft, ybottom, xright, ytop){
-
-  if (ytop <= ybottom)
-    stop("ytop must be > ybottom")
-  if (xleft >= xright)
-    stop("xleft must be < xright")
-
-  # measure graphics device
-  asp <- diff(par("usr")[3:4]) / diff(par("usr")[1:2])
-  dev <- dev.size()[1] / dev.size()[2]
-
-  # make a curve and split into left and right
-  radius <- (ytop - ybottom) / 2
-  centerY <- ytop - radius
-  centerX <- mean(c(xleft, xright))
-  theta <- seq(0, 2 * pi, length = 200)
-  circX <- cos(theta)
-  circY <- sin(theta)
-  leftC <- which(circX <= 0)
-  rightC <- which(circX >= 0)
-
-  xR <- circX[rightC]
-  yR <- circY[rightC]
-  ordYR <- rev(order(yR))
-  xR <- xR[ordYR]
-  yR <- yR[ordYR]
-
-  xL <- circX[leftC]
-  yL <- circY[leftC]
-  ordYL <- order(yL)
-  xL <- xL[ordYL]
-  yL <- yL[ordYL]
-
-  # project onto graphics device and scale
-  xRightS <- xright - (radius / asp / dev)
-  xLeftS <- xleft + (radius / asp / dev)
-  if (centerX < xLeftS)
-    xLeftS <- centerX
-  if (centerX > xRightS)
-    xRightS <- centerX
-  xLS <- scale_between(xL, xleft, xLeftS)
-  xRS <- scale_between(xR, xRightS, xright)
-  yLS <- scale_between(yL, ybottom, ytop)
-  yRS <- scale_between(yR, ybottom, ytop)
-  return(data.table(x = c(xRS,xLS), y = c(yRS, yLS)))
-}
-
-

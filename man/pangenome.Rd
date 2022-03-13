@@ -2,7 +2,7 @@
 % Please edit documentation in R/pangenome.R
 \name{pangenome}
 \alias{pangenome}
-\title{Build genespace pangenome}
+\title{Build genespace pan-genome annotation}
 \usage{
 pangenome(
   gsParam,
@@ -36,15 +36,36 @@ in a pangenome entry needed to anchor the physical position to a new location}
 number of non-syntenic orthologs to include in the pan-genome annotation.}
 }
 \value{
-a data.table with lists of gene ids for each genome. Each row
-corresponds to a unique combination of orthogroup and physical position
-on the reference. Where multiple positions are inferred on a single
-chromosome, the positions are broken out by the column 'clus'.
+For each pan-genome, constructed against a reference, GENESPACE
+writes a file: `/results/[refgenome]_pangenome.txt.gz`. This is the source
+data that can be manipulated programatically to extract your regions of
+interest. Future GENESPACE releases will have auxilary functions that let the
+user access the pan-genome by rules (e.g. contains these genes, in these
+regions etc.). For now, we'll leave this work to scripting by the user.
+The text file contains the following fields: "pgChr", "pgOrd", "pgID", "og"
+... these are unique pan-genome entry identifiers. "pgChr" and "pgOrd" are
+the inferred chromosome and gene rank order in the reference genome used in
+the pangenome(..., refGenome = "") call. If you didn't specify a refGenome,
+it will just be the first genomeID you specified in init_genespace(). "pgID"
+is a unique identifier for each entry. "og" is the orthogroup that the anchor
+of the entry belongs to. "ofID", "genome", "id" ... these are the IDs and
+metadata for each gene. "ofID" is the orthofinder internal ID and crucial for
+mapping against the synHits and gff, but mostly just used internally. "id" is
+the geneID in the gff. "genome" is the genome where that gene resides.
+isDirectSyn, isSynOgOnly, isArrayRep, isNSOrtho ... see pipeline description
+above. `pangenome` also returns an R object, which is a data.table with the
+first three metadata positional information columns as the source text file.
+The follow columns are labeled by the genomeIDs and give gene members for
+each pan-genome entry (row). Each entry is a list of the geneIDs, which
+appears as a "," separated vector when printed in R. If written to file using
+`fwrite`, the commas will become "|" separated, per data.table specification.
+Non-rep array members are flagged with a "+" following the geneID;
+non-syntenic orthologs are flagged with "*".
 }
 \description{
 \code{pangenome} Convert orthogroup and synteny information into a
-pangenome database. Predict locations of orthogroups that are missing a
-node in the reference.
+pan-genome annotation format Predict locations of orthogroups that are
+missing a node in the reference.
 }
 \details{
 The pangenome annotation is a projection of syntenic orthogroups

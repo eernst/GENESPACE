@@ -21,7 +21,7 @@ find_kmer(
 slide_genome(path2fasta, bedObj, step, size, nCores = 1)
 }
 \arguments{
-\item{path2fasta}{file.path to a fast file}
+\item{path2fasta}{file.path to a fasta assembly file}
 
 \item{kmerSize}{integer of length 1, specifying the size of the kmer to use}
 
@@ -45,10 +45,13 @@ windows in bps.}
 \item{size}{integer of length 1, specifying sliding window size in bps.}
 }
 \value{
-...
+All functions return a data.table, except kmerize_fasta, which
+returns a character vector of kmers.
 }
 \description{
-\code{analyze_genome} Sliding window and kmer exploration of genomes
+\code{analyze_genome} Sliding window and kmer exploration of genomes. These
+functions are included here to assist with genome QC and comparative
+analyses, but are not integrated into the GENESPACE pipeline.
 
 \code{kmerize_fa} kmerize_fa
 
@@ -57,7 +60,11 @@ windows in bps.}
 \code{slide_genome} slide_genome
 }
 \details{
-...
+The kmer finding routines offer fast methods for exact string
+matching, even for large sets of kmers or very large genome assemblies. The
+sliding window method offers an alternative to froll from data.table,
+which only can do fixed site width analyses. Here, we use base-pair windows,
+which is usually what users want for genome comparisons.
 }
 \note{
 \code{analyze_genome} is a generic name for the functions documented.
@@ -69,9 +76,9 @@ If called, \code{analyze_genome} returns its own arguments.
 teloKmer <- c("CCCGAAA", "CCCTAAA")
 teloLoc <- find_kmer(
   kmers = teloKmer,
-  path2fasta = fallaxFa)
+  path2fasta = path2yourfasta)
 swtelo <- slide_genome(
-  path2fasta = fallaxFa,
+  path2fasta = path2yourfasta,
   windowSize = 5e3,
   stepSize = 500,
   bedObj = teloLoc)

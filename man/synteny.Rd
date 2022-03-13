@@ -5,14 +5,7 @@
 \alias{pipe_synteny}
 \alias{set_syntenyParams}
 \alias{run_mcscanx}
-\alias{annotate_gff}
 \alias{flag_synteny}
-\alias{add_arrayReps2gff}
-\alias{add_synOg2gff}
-\alias{combine_inblkSynOG}
-\alias{split_blks}
-\alias{find_hitsInBuff}
-\alias{get_hitsInBlks}
 \alias{clus_dbscan}
 \title{Parsing of pairwise hits into synteny}
 \usage{
@@ -55,8 +48,6 @@ set_syntenyParams(
 
 run_mcscanx(hits, blkSize, nGaps, gsParam, path2mcscanx)
 
-annotate_gff(gsParam, genomeIDs)
-
 flag_synteny(
   hits,
   gsParam,
@@ -69,18 +60,6 @@ flag_synteny(
   maskTheseHits = NULL,
   onlyOgAnchors
 )
-
-add_arrayReps2gff(gff, synBuff, ogColumn, verbose)
-
-add_synOg2gff(gff, gsParam, genomeIDs)
-
-combine_inblkSynOG(genomeIDs, gff, gsParam)
-
-split_blks(hits, blkSize, verbose = F, maxIter = 5)
-
-find_hitsInBuff(hits, synBuff)
-
-get_hitsInBlks(blks, hits)
 
 clus_dbscan(hits, radius, blkSize)
 }
@@ -172,12 +151,12 @@ each gene on genome 2}
 \item{maskTheseHits}{character vector paste of the pairwise blast orthofinder
 gene IDs. Used to mask hits in the hits object}
 
+\item{radius}{numeric of length 1 specifying the search radius.}
+
 \item{maxIter}{integer of length 1 specifying the maximum number of
 iterations}
 
 \item{blks}{data.table containing the block coordinates. See calc_blkCoords}
-
-\item{radius}{numeric of length 1 specifying the search radius.}
 }
 \value{
 Synteny functions produce three types of outputs: (1) a 'hits'
@@ -223,21 +202,7 @@ Other synteny functions require this as input.
 \code{run_mcscanx} Internal GENESPACE function to run MCScanX on hits when
 searching for synteny.
 
-\code{annotate_gff} annotate_gff
-
 \code{flag_synteny} flag_synteny
-
-\code{add_arrayReps2gff} add_arrayReps2gff
-
-\code{add_synOg2gff} add synteny-constrained orthogroups to gff
-
-\code{combine_inblkSynOG} combine inblk and syn OGs
-
-\code{split_blks} function to deal with overlapping / interleafed blocks
-
-\code{find_hitsInBuff} pull hits within a buffer to any flagged with "isAnchor"
-
-\code{get_hitsInBlks} pull hits within block coordinates
 
 \code{clus_dbscan} clus_dbscan
 }

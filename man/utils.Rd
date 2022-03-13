@@ -3,19 +3,13 @@
 \name{utils}
 \alias{utils}
 \alias{.onAttach}
-\alias{order_filesByMtime}
-\alias{check_logicalArg}
 \alias{add_rle}
 \alias{clus_igraph}
-\alias{get_nAA}
 \alias{find_modalValue}
 \alias{scale_between}
-\alias{flatten_list}
 \alias{pull_strWidth}
-\alias{round_toInteger}
 \alias{read_orthofinderSpeciesIDs}
 \alias{read_orthofinderSequenceIDs}
-\alias{choose_mostRecentOF}
 \alias{parse_ogs}
 \alias{parse_orthologues}
 \alias{read_blast}
@@ -23,39 +17,23 @@
 \alias{calc_blkCoords}
 \alias{are_colors}
 \alias{add_alpha}
-\alias{drop_unusedPeptides}
-\alias{interp_linear}
 \title{Generic internal functions used by genespace}
 \usage{
 .onAttach(...)
-
-order_filesByMtime(path = getwd(), pattern = "*", recursive = F)
-
-check_logicalArg(x)
 
 add_rle(x, which = "n")
 
 clus_igraph(id1, id2)
 
-get_nAA(path, raw = FALSE)
-
 find_modalValue(x)
-
-scale_between(x, min, max, scale1toMean = TRUE)
-
-flatten_list(x)
 
 scale_between(x, min, max, scale1toMean = TRUE)
 
 pull_strWidth(x, width)
 
-round_toInteger(x, to)
-
 read_orthofinderSpeciesIDs(path)
 
 read_orthofinderSequenceIDs(path)
-
-choose_mostRecentOF(path)
 
 parse_ogs(gsParam)
 
@@ -76,21 +54,11 @@ calc_blkCoords(hits, mirror = FALSE)
 are_colors(col)
 
 add_alpha(col, alpha = 1)
-
-drop_unusedPeptides(gsParam)
-
-interp_linear(refOrd, toInterpOrd)
 }
 \arguments{
 \item{...}{additional arguments passed to other functions
 \cr
 If called, \code{utils} returns its own arguments.}
-
-\item{path}{file path character string}
-
-\item{pattern}{regular expression to search for}
-
-\item{recursive}{logical, should the search be recursive}
 
 \item{x}{vector of observations}
 
@@ -100,8 +68,6 @@ If called, \code{utils} returns its own arguments.}
 
 \item{id2}{character vector of ids with length matching id1}
 
-\item{raw}{logical, should a raw vector of peptide widths be returned?}
-
 \item{min}{numeric, length 1 specifying the minumum value in the scaled data}
 
 \item{max}{numeric, length 1 specifying the maximum value in the scaled data}
@@ -110,7 +76,7 @@ If called, \code{utils} returns its own arguments.}
 
 \item{width}{integer, the number of characters to return in string.}
 
-\item{to}{what should the value be rounded to?}
+\item{path}{file path character string}
 
 \item{gsParam}{list of genespace parameters}
 
@@ -133,10 +99,6 @@ If called, \code{utils} returns its own arguments.}
 \item{col}{character or integer specifying a color}
 
 \item{alpha}{numeric (0-1) specifying the transparency}
-
-\item{refOrd}{numeric, the order of anchor hits to interpolate}
-
-\item{toInterpOrd}{numeric, the order of alt genes to interpolate}
 }
 \description{
 \code{utils} Convience functions for genespace, not meant to be called
@@ -145,36 +107,21 @@ risk.
 
 \code{.onAttach} startup messages
 
-\code{order_filesByMtime} Order files by date of last modification
-
-\code{check_logicalArg} Ensure a logical (length 1) argument is coerced
-correctly. If cannot be coerced, return error.
-
 \code{add_rle} Convert vector into run length equivalents
 
 \code{clus_igraph} Clus_igraph
-
-\code{get_nAA} count the number of amino acids by gene
 
 \code{find_modalValue} find the most commmon value in a series
 
 \code{scale_between} scale a vector between a range
 
-\code{flatten_list} convert a list into a vector while keeping names
-
-\code{scale_between} ...
-
 \code{pull_strWidth} pull_strWidth
-
-\code{round_toInteger} round_toInteger
 
 \code{read_orthofinderSpeciesIDs} Parses the SpeciesIDs.txt file into a
 data.table and returns to R.
 
 \code{read_orthofinderSequenceIDs} Reads the sequence
 IDs:gene name dictionary into memory.
-
-\code{choose_mostRecentOF} choose_mostRecentOF
 
 \code{parse_ogs} wide to long format conversion for orthogroups.tsv
 
@@ -190,8 +137,4 @@ file
 \code{are_colors} check if a vector is coercible to R colors
 
 \code{add_alpha} add transparency to a color
-
-\code{drop_unusedPeptides} drop_unusedPeptides
-
-\code{interp_linear} linear interpolation of missing values in x
 }

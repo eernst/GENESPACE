@@ -3,9 +3,6 @@
 \name{genespaceData}
 \alias{genespaceData}
 \alias{make_exampleData}
-\alias{download_rawData}
-\alias{find_rawData}
-\alias{find_exampleData}
 \alias{make_exampleDataDir}
 \title{Test data for GENESPACE examples}
 \format{
@@ -27,12 +24,6 @@ file. The gff3 annotation columns are as follows:
 \usage{
 make_exampleData(writeDir)
 
-download_rawData(writeDir)
-
-find_rawData()
-
-find_exampleData()
-
 make_exampleDataDir(writeDir)
 }
 \arguments{
@@ -47,16 +38,18 @@ existent path within an existing directory.}
 
 \code{make_exampleData} make_exampleData
 
-\code{download_rawData} download_rawData
-
-\code{location_ofRawData} location_ofRawData
-
-\code{find_exampleData} find_exampleData
-
 \code{find_exampleData} find_exampleData
 }
 \details{
-...
+The raw data can be found here:
+ \describe{
+  \item{human peptide}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/reference/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_translated_cds.faa.gz}
+  \item{human gff}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Homo_sapiens/reference/GCF_000001405.39_GRCh38.p13/GCF_000001405.39_GRCh38.p13_genomic.gff.gz}
+  \item{chimp peptide}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Pan_troglodytes/latest_assembly_versions/GCF_002880755.1_Clint_PTRv2/GCF_002880755.1_Clint_PTRv2_translated_cds.faa.gz}
+  \item{chimp gff}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Pan_troglodytes/latest_assembly_versions/GCF_002880755.1_Clint_PTRv2/GCF_002880755.1_Clint_PTRv2_genomic.gff.gz}
+  \item{rhesus peptide}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_translated_cds.faa.gz}
+  \item{rhesus gff}{https://ftp.ncbi.nih.gov/genomes/refseq/vertebrate_mammalian/Macaca_mulatta/latest_assembly_versions/GCF_003339765.1_Mmul_10/GCF_003339765.1_Mmul_10_genomic.gff.gz}
+}
 }
 \note{
 \code{genespaceData} is a generic name for the functions documented.

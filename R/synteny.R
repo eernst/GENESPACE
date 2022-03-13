@@ -189,6 +189,361 @@ synteny <- function(gsParam,
                     recallSynteny = TRUE,
                     ...){
 
+  ##############################################################################
+  # -- ad hoc function to annotate the gff
+  annotate_gff <- function(gsParam, genomeIDs){
+    ############################################################################
+    # -- function to read in genespace-formatted gff files into memory
+    read_gff <- function(gffFiles){
+      setDTthreads(1)
+      genome <- NULL
+      gff <- rbindlist(lapply(names(gffFiles), function(i){
+        x <- fread(
+          gffFiles[[i]],
+          key = c("chr", "start","end","strand"))
+        x[,genome := i]
+        return(x)
+      }))
+      gffCols <- c("ord","chr","genome","start", "end", "strand","id")
+      if(!all(gffCols %in% colnames(gff)))
+        stop(paste(gffCols, collapse = ", "),
+             " must all be column names in gff\n")
+      return(gff)
+    }
+
+    ############################################################################
+    # -- function to add orthofinder ID to gff
+    add_ofID2gff <- function(gff,
+                             blastDir){
+      setDTthreads(1)
+      id <- ofID <- genomeNum <- genome <- NULL
+      specIDs <- read_orthofinderSpeciesIDs(blastDir)
+      gv <- names(specIDs)
+      names(gv) <- as.character(specIDs)
+
+      genomeNum <- NULL
+      seqIDs <- read_orthofinderSequenceIDs(blastDir)
+      seqIDs[,genome :=  gv[as.character(genomeNum)]]
+      idv <- seqIDs$ofID
+
+      id <- genome <- NULL
+      names(idv) <- with(seqIDs, paste(genome, id))
+      gff[,ofID := idv[paste(genome, id)]]
+      return(gff)
+    }
+
+    ############################################################################
+    # -- function to add global orthofinder orthogroups to gff
+    add_ogs2gff <- function(gsParam, gff){
+      setDTthreads(1)
+      ogs <- parse_ogs(gsParam)
+      gff <- merge(
+        gff, ogs,
+        by = c("genome","id"), all.x = T)
+      gff$ogID[is.na(gff$ogID)] <- paste0("NOG",1:sum(is.na(gff$ogID)))
+      setnames(gff, "ogID", "globOG")
+      return(gff)
+    }
+
+    ############################################################################
+    # -- function to add peptide length to gff
+    add_pepLen2gff <- function(gff,
+                               gsParam){
+      setDTthreads(1)
+
+      get_nAA <- function(path, raw = FALSE){
+        setDTthreads(1)
+        if(!raw){
+          pepF <- list.files(path, pattern = "^Species", full.names = T)
+          pepF <- pepF[grep(".fa$", pepF)]
+          peps <- rbindlist(lapply(pepF, function(x){
+            y <- readAAStringSet(x)
+            return(data.table(ofID = names(y),
+                              nAA = width(y)))
+          }))
+        }else{
+          y <- readAAStringSet(path)
+          o <- width(y)
+          names(o) <- names(y)
+          return(o)
+        }
+      }
+
+      id <- NULL
+      spl <- split(gff, by = "genome")
+      naa <- rbindlist(lapply(spl, function(x){
+        x[,pepLen := get_nAA(gsParam$paths$peptide[x$genome[1]], raw = T)[id]]
+        return(x[,c("ofID","pepLen")])
+      }))
+      nao <- naa$pepLen; names(nao) <- naa$ofID
+      pepLen <- ofID <- NULL
+      gff[,pepLen := nao[ofID]]
+      return(gff)
+    }
+
+    # -- read in the gff
+    gff <- read_gff(gsParam$paths$gff[genomeIDs])
+
+    # -- add orthofinder ids
+    gff <- add_ofID2gff(gff, gsParam$paths$blastDir)
+
+    # -- subset to genomeIDs
+    genome <- ord <- NULL
+    gff <- subset(gff, genome %in% genomeIDs)
+    gff[,genome := factor(genome, levels = genomeIDs)]
+    setkey(gff, genome, ord)
+
+    # -- add peptide length
+    gff <- add_pepLen2gff(gff = gff, gsParam = gsParam)
+
+    # -- add global orthogroups
+    gff <- add_ogs2gff(gff = gff, gsParam = gsParam)
+
+    return(gff)
+  }
+
+  ##############################################################################
+  # -- ad hoc function to add array reps to the gff
+  add_arrayReps2gff <- function(gff,
+                                synBuff,
+                                ogColumn,
+                                verbose){
+    pull_synArray <- function(gff, synBuff, ogColumn){
+      rng <- NULL
+      setDTthreads(1)
+      # -- make global arrays from orthogroups
+      gff[,arrayID := gff[[ogColumn]]]
+      genome <- chr <- arrayID <- NULL
+      gff[,arrayID := sprintf("%s_%s_%s", genome, chr, arrayID)]
+      gff[,n := .N, by = "arrayID"]
+
+      # -- combine 1x ogs with ogs in regions < synBuff
+      n <- NULL
+      g1 <- subset(gff, n == 1)
+      g2 <- subset(gff, n > 1)
+
+      if(nrow(g2) > 1){
+        ord <- NULL
+        g2[,rng := diff(range(ord)),  by = "arrayID"]
+        g2[,clus := 1]
+        g1 <- rbind(g1, subset(g2, rng <= synBuff)[,colnames(g1), with = F])
+        g2 <- subset(g2, rng > synBuff)
+        if(nrow(g2) > 1){
+          # -- combine above with ogs without max gap < synBuff
+          ord <- NULL
+          g2[,rng := max(diff(ord[order(ord)])), by = "arrayID"]
+          g1 <- rbind(g1, subset(g2, rng <= synBuff)[,colnames(g1), with = F])
+          g2 <- subset(g2, rng > synBuff)
+
+          # -- split ogs with gaps
+          ord <- arrayID <- clus <- NULL
+          g2[,clus := dbscan(frNN(cbind(ord, ord), eps = synBuff), minPts = 1)$cluster,
+             by = "arrayID"]
+        }
+        g2[,arrayID := sprintf("%s_%s", arrayID, clus)]
+        gff <- rbind(g1, g2[,colnames(g1), with = F])
+      }
+      gff[,n := NULL]
+      return(gff)
+    }
+
+    pull_arrayRep <- function(gff){
+      med <- medbp <- rnk <- NULL
+      setDTthreads(1)
+      if(!"arrayID" %in% colnames(gff))
+        stop("Cannot find a column named arrayID ... can't add arrayReps\n")
+
+      if(!all(c("start", "ord", "pepLen") %in% colnames(gff)))
+        stop("cannot find start, ord and/or pepLen in data.table columns\n")
+
+      # -- split single and multi-member arrays
+      n <- genome <- ord <- NULL
+      gff[,n := .N, by = "arrayID"]
+      out <- subset(gff, n == 1)
+      out[,isArrayRep := TRUE]
+      tmp <- subset(gff, n > 1)
+      if(nrow(tmp) > 1){
+        setkey(tmp, genome, ord)
+
+        # -- calulate the distance to the median for each gene
+        ord <- start <- NULL
+        tmp[,`:=`(med = as.numeric(median(ord)),
+                  medbp = as.numeric(median(start)))]
+        tmp[,`:=`(dist2med = abs(med - ord),
+                  dist2bp = abs(medbp - start))]
+
+        # -- rank and choose representatives
+        dist2med <- dist2bp <- pepLen <- NULL
+        setorder(tmp, dist2med, dist2bp, -pepLen)
+        tmp[,rnk := 1:.N, by = "arrayID"]
+        tmp[,`:=`(isArrayRep = rnk == 1, rnk = NULL, dist2med = NULL,
+                  dist2bp = NULL, med = NULL, medbp = NULL)]
+
+        # -- combine and return
+        out <- rbind(out, tmp)
+        out[,n := NULL]
+        genome <- ord <- NULL
+        setkey(out, genome, ord)
+      }
+      return(out)
+    }
+
+    # -- get collinear array IDs
+    setDTthreads(1)
+    arrayOrd <- NULL
+    ovf <- gff$ord; names(ovf) <- gff$ofID
+    gff <- data.table(gff)
+    gff <- pull_synArray(
+      gff = gff,
+      synBuff = synBuff,
+      ogColumn = ogColumn)
+
+    # -- add array representatives
+    gff <- pull_arrayRep(gff)
+    tmp <- data.table(gff)
+    no <- 0; ni <- 1
+    for(i in 1:10){
+      if(ni > no){
+        # -- get vector of gene order for array reps and convert order column
+        ni <- uniqueN(tmp$arrayID)
+        isArrayRep <- genome <- ord <- arrayID <- NULL
+        tmps <- subset(tmp, isArrayRep)
+        setkey(tmps, genome, ord)
+        tmps[,ord := 1:.N, by = "genome"]
+        ov <- tmps$ord; names(ov) <- tmps$arrayID
+        tmp[,ord := ov[arrayID]]
+
+        # -- re-calculate arrayIDs with new order
+        tmp <- pull_synArray(
+          gff = tmp,
+          synBuff = synBuff,
+          ogColumn = ogColumn)
+        tmp <- pull_arrayRep(tmp)
+        no <- uniqueN(tmp$arrayID)
+      }
+    }
+    gff <- data.table(tmp)
+
+    if(verbose){
+      cat("\tFound the following counts of arrays / genome:\n")
+      arrayID <- NULL
+      spl <- subset(gff, arrayID %in% subset(gff, duplicated(arrayID))$arrayID)
+      nu <- lapply(split(spl, by = "genome"), function(x)
+        cat(sprintf("\t\t%s: %s genes in %s collinear arrays\n",
+                    x$genome[1], nrow(x), uniqueN(x$arrayID))))
+    }
+
+    # -- adding in the array order here
+    ofID <- genome <- ord <- arrayID <- NULL
+    gff[,ord := ovf[ofID]]
+    setkey(gff, genome, ord)
+    gff[,arrayOrd := as.numeric(factor(arrayID, levels = unique(arrayID))),
+        by = "genome"]
+
+    # -- lower-memory coding of the arrays and OGs
+    arrayID <- globOG <- NULL
+    gff[,arrayID := as.integer(factor(arrayID, levels = unique(arrayID)))]
+    gff[,globOG := as.integer(factor(globOG, levels = unique(globOG)))]
+    return(gff)
+  }
+
+  ##############################################################################
+  # -- ad hoc function to add syntenic OGs to gff
+  add_synOg2gff <- function(gff,
+                            gsParam,
+                            genomeIDs){
+
+    setDTthreads(1)
+    # -- find hits files
+    eg <- CJ(genomeIDs, genomeIDs)
+    fs <- file.path(gsParam$paths$results,
+                    sprintf("%s_%s_synHits.txt.gz",eg[[1]], eg[[2]]))
+    fs <- fs[file.exists(fs)]
+
+    # -- read all hits
+    nCores <- gsParam$params$nCores
+    setDTthreads(1)
+    ofID1 <- ofID2 <- isOg <- inBuffer <- NULL
+    hts <- rbindlist(lapply(fs, function(i){
+      x <- fread(
+        i, select = c("ofID1","ofID2","isOg","inBuffer"),
+        na.strings = c("","NA"), showProgress = F)
+      x <- subset(x, inBuffer & isOg & ofID1 != ofID2)
+      return(x[,c("ofID1", "ofID2")])
+    }))
+
+    # -- summarize by arrays
+    ofID1 <- ofID2 <- arrayID <- NULL
+    gff[,arrv := as.character(as.numeric(as.factor(arrayID)))]
+    av <- gff$arrv; names(av) <- gff$ofID
+    hts[,`:=`(a1 = as.character(av[ofID1]),
+              a2 = as.character(av[ofID2]))]
+    hts <- subset(hts, !is.na(a1) & !is.na(a2))
+
+    # -- convert to syntenic orthogroups
+    a1 <- a2 <- NULL
+    ic <- with(hts, clus_igraph(
+      id1 = c(a1, a2), id2 = c(a2, a1)))
+
+    # -- add in genes with missing synOgs
+    arrv <- NULL
+    tmp <- subset(gff, !arrv %in% as.character(names(ic)))
+    nc <- 1:uniqueN(tmp$arrv) + uniqueN(ic); names(nc) <- unique(tmp$arrv)
+    ic <- c(ic, nc)
+    gff[,`:=`(synOG = ic[as.character(arrv)], arrv = NULL)]
+    return(gff)
+  }
+
+  ##############################################################################
+  # -- ad hoc function to combine inblk and syn OGs
+  combine_inblkSynOG <- function(genomeIDs,
+                                 gff,
+                                 gsParam){
+    setDTthreads(1)
+    genome <- NULL
+    gff <- subset(gff, genome %in% genomeIDs)
+    if(gsParam$params$verbose)
+      cat("Combining synteny-constrained and inblock orthogroups ...\n")
+
+    if(gsParam$params$verbose)
+      cat(sprintf("\tsyn OGs: %s, inblk OGs: %s",
+                  uniqueN(gff$synOG, na.rm = T),
+                  uniqueN(gff$inblkOG, na.rm = T)))
+    noInBlk <- all(is.na(gff$inblkOG))
+
+    inblkOG <- synOG <- NULL
+
+    if(noInBlk)
+      gff[,inblkOG := synOG]
+
+    ofID <- ofID1 <- ofID2 <- clus <- og <- combOG <- inblkOG <- synOG <- NULL
+    inblk <- gff[,list(ofID1 = ofID[-.N], ofID2 = ofID[-1]), by = "inblkOG"]
+    syn <- gff[,list(ofID1 = ofID[-.N], ofID2 = ofID[-1]), by = "synOG"]
+    u <- with(inblk, paste(ofID1, ofID2))
+
+    syn <- subset(syn, !paste(ofID1, ofID2) %in% u & ofID1 != ofID2)
+    tmp <- rbind(syn[,c("ofID1", "ofID2")], inblk[,c("ofID1", "ofID2")])
+    tmp[,clus := clus_igraph(ofID1, ofID2)]
+
+    ov <- with(tmp, c(clus, clus))
+    names(ov) <- with(tmp, c(ofID1, ofID2))
+
+    gff[,combOG := ov[ofID]]
+    nmis <- sum(is.na(gff$combOG))
+    mol <- max(gff$combOG, na.rm = T)
+    gff$combOG[is.na(gff$combOG)] <- (mol + 1):(mol + nmis)
+    gff[,combOG := as.integer(factor(combOG, levels = unique(combOG)))]
+
+    if(gsParam$params$verbose)
+      cat(sprintf(", combined OGs: %s\n",
+                  uniqueN(gff$combOG)))
+    gff[,`:=`(og = combOG, combOG = NULL)]
+    if(noInBlk)
+      gff[,inblkOG := NA]
+    return(gff)
+  }
+
+
   genome1 <- genome2 <- globOG <- nog <- n <- rat <- nogPass <- nogFail <- NULL
 
   ##############################################################################
@@ -1150,103 +1505,6 @@ run_mcscanx <- function(hits,
   }
 }
 
-#' @title annotate_gff
-#' @description
-#' \code{annotate_gff} annotate_gff
-#' @rdname synteny
-#' @export
-annotate_gff <- function(gsParam, genomeIDs){
-  ##############################################################################
-  # -- function to read in genespace-formatted gff files into memory
-  read_gff <- function(gffFiles){
-    setDTthreads(1)
-    genome <- NULL
-    gff <- rbindlist(lapply(names(gffFiles), function(i){
-      x <- fread(
-        gffFiles[[i]],
-        key = c("chr", "start","end","strand"))
-      x[,genome := i]
-      return(x)
-    }))
-    gffCols <- c("ord","chr","genome","start", "end", "strand","id")
-    if(!all(gffCols %in% colnames(gff)))
-      stop(paste(gffCols, collapse = ", "),
-           " must all be column names in gff\n")
-    return(gff)
-  }
-
-  ##############################################################################
-  # -- function to add orthofinder ID to gff
-  add_ofID2gff <- function(gff,
-                           blastDir){
-    setDTthreads(1)
-    id <- ofID <- genomeNum <- genome <- NULL
-    specIDs <- read_orthofinderSpeciesIDs(blastDir)
-    gv <- names(specIDs)
-    names(gv) <- as.character(specIDs)
-
-    genomeNum <- NULL
-    seqIDs <- read_orthofinderSequenceIDs(blastDir)
-    seqIDs[,genome :=  gv[as.character(genomeNum)]]
-    idv <- seqIDs$ofID
-
-    id <- genome <- NULL
-    names(idv) <- with(seqIDs, paste(genome, id))
-    gff[,ofID := idv[paste(genome, id)]]
-    return(gff)
-  }
-
-  ##############################################################################
-  # -- function to add global orthofinder orthogroups to gff
-  add_ogs2gff <- function(gsParam, gff){
-    setDTthreads(1)
-    ogs <- parse_ogs(gsParam)
-    gff <- merge(
-      gff, ogs,
-      by = c("genome","id"), all.x = T)
-    gff$ogID[is.na(gff$ogID)] <- paste0("NOG",1:sum(is.na(gff$ogID)))
-    setnames(gff, "ogID", "globOG")
-    return(gff)
-  }
-
-  ##############################################################################
-  # -- function to add peptide length to gff
-  add_pepLen2gff <- function(gff,
-                             gsParam){
-    setDTthreads(1)
-    id <- NULL
-    spl <- split(gff, by = "genome")
-    naa <- rbindlist(lapply(spl, function(x){
-      x[,pepLen := get_nAA(gsParam$paths$peptide[x$genome[1]], raw = T)[id]]
-      return(x[,c("ofID","pepLen")])
-    }))
-    nao <- naa$pepLen; names(nao) <- naa$ofID
-    pepLen <- ofID <- NULL
-    gff[,pepLen := nao[ofID]]
-    return(gff)
-  }
-
-  # -- read in the gff
-  gff <- read_gff(gsParam$paths$gff[genomeIDs])
-
-  # -- add orthofinder ids
-  gff <- add_ofID2gff(gff, gsParam$paths$blastDir)
-
-  # -- subset to genomeIDs
-  genome <- ord <- NULL
-  gff <- subset(gff, genome %in% genomeIDs)
-  gff[,genome := factor(genome, levels = genomeIDs)]
-  setkey(gff, genome, ord)
-
-  # -- add peptide length
-  gff <- add_pepLen2gff(gff = gff, gsParam = gsParam)
-
-  # -- add global orthogroups
-  gff <- add_ogs2gff(gff = gff, gsParam = gsParam)
-
-  return(gff)
-}
-
 #' @title flag_synteny
 #' @description
 #' \code{flag_synteny} flag_synteny
@@ -1262,6 +1520,150 @@ flag_synteny <- function(hits,
                          selfOnly,
                          maskTheseHits = NULL,
                          onlyOgAnchors){
+
+  ##############################################################################
+  # -- add hoc function to split overlapping blocks
+  split_blks <- function(hits, blkSize, verbose = F, maxIter = 5){
+    setDTthreads(1)
+    # -- function to count the overlapping hits
+    count_ovlHits <- function(hits, maxDup){
+      blkID <- i.blkID <- blk1 <- blk2 <- r1 <- r2 <- nOvlp <- totHits <- n1 <-
+        n2 <- NULL
+      bc <- calc_blkCoords(hits)
+      bc1 <- with(bc, data.table(
+        blkID = blkID, chr = chr1, start = startOrd1, end = endOrd1,
+        key = c("chr","start","end")))
+      bc2 <- with(bc, data.table(
+        blkID = blkID, chr = chr2, start = minOrd2, end = maxOrd2,
+        key = c("chr","start","end")))
+
+      # -- find non-self overlapping regions
+      fo1 <- subset(foverlaps(bc1, bc1), blkID != i.blkID)
+      fo2 <- subset(foverlaps(bc2, bc2), blkID != i.blkID)
+
+      # -- add overlapping info into an output object
+      out <- data.table(
+        blk1 = c(fo1$blkID, fo2$blkID),
+        blk2 = c(fo1$i.blkID, fo2$i.blkID))
+
+      # -- choose the non-repeated overlaps
+      u <- unique(c(out$blk1, out$blk2))
+      un <- order(u); names(un) <- u
+      out[,`:=`(r1 = un[blk1], r2 = un[blk2])]
+      out[,u := ifelse(r1 > r2,  paste(blk1, blk2), paste(blk2, blk1))]
+      out <- subset(out, !duplicated(u))
+      out[,`:=`(r1 = NULL, r2 = NULL, u = NULL)]
+      blkOvl <- subset(out, !duplicated(out))
+      blkOvl[,u := apply(.SD, 1, function(x) paste(x[order(x)], collapse = "_")),
+             .SDcols = c("blk1", "blk2")]
+      blkOvl <- subset(blkOvl, !duplicated(u))
+      blkOvl[,u := NULL]
+      tmp <- subset(hits, blkID %in% unique(c(blkOvl$blk1, blkOvl$blk2)))
+      spl <- split(tmp, by = "blkID")
+      blkOvl[,nOvlp := apply(blkOvl, 1, function(z){
+        x <- spl[[as.character(z[[1]])]]
+        y <- spl[[as.character(z[[2]])]]
+        return(sum(x$ofID1 %in% y$ofID1, x$ofID2 %in% y$ofID2,
+                   x$ofID1 %in% y$ofID1, x$ofID2 %in% y$ofID2))
+      })]
+      nv <- with(bc, nHits1 + nHits2); names(nv) <- bc$blkID
+      blkOvl[,`:=`(n1 = nv[as.character(blk1)],
+                   n2 = nv[as.character(blk2)])]
+      blkOvl[,totHits := n1 + n2]
+
+      setorder(blkOvl, -totHits)
+      return(subset(blkOvl, nOvlp <= maxDup))
+    }
+
+    spl_ovlblks <- function(blk1, blk2, hits, blkSize){
+      blkID <- isAnchor <- arrayOrd1 <- arrayOrd2 <- tmpb <- ord1 <- ord2 <- NULL
+      tmp <- subset(hits, blkID %in% c(blk1, blk2) & isAnchor)
+      tmp[,`:=`(ord1 = frank(arrayOrd1, ties.method = "dense"),
+                ord2 = frank(arrayOrd2, ties.method = "dense"))]
+      tmp[,tmpb := dbscan(frNN(cbind(ord1, ord2), eps = blkSize),
+                          minPts = blkSize)$cluster]
+      tmp <- subset(tmp, tmpb > 0)
+      tmp[,`:=`(blkID = paste(tmpb, blkID), tmpb = NULL)]
+      return(tmp)
+    }
+
+    isAnchor <- blk1 <- blk2 <- blkID <- NULL
+    tmp <- subset(hits, isAnchor)
+    runit <- T
+    niter <- 1
+    excl <- character()
+    while(niter < maxIter & runit){
+      if(verbose)
+        cat(sprintf("%s: %s", niter, uniqueN(tmp$blkID)))
+      niter <- niter + 1
+      novl <- count_ovlHits(hits = tmp, maxDup = blkSize)
+      novl <- subset(novl, !paste(blk1, blk2) %in% excl)
+      novl <- subset(novl, !blk1 %in% novl$blk1[duplicated(novl$blk1)])
+      novl <- subset(novl, !blk2 %in% novl$blk2[duplicated(novl$blk2)])
+      novl <- subset(novl, !blk1 %in% blk2)
+      novl <- subset(novl, !blk2 %in% blk1)
+      noovl <- subset(tmp, !blkID %in% c(novl$blk1, novl$blk2))
+      ovl <- subset(tmp, blkID %in% c(novl$blk1, novl$blk2))
+      if(nrow(ovl) < blkSize){
+        runit <- FALSE
+      }else{
+        ovls <- rbindlist(lapply(1:nrow(novl), function(k)
+          spl_ovlblks(
+            blk1 = novl$blk1[k], blk2 = novl$blk2[k],
+            hits = ovl, blkSize = ceiling(blkSize/2))))
+        tmp <- rbind(noovl, ovls)
+        excl <- unique(c(excl, with(novl, unique(
+          c(paste(blk1, blk2), paste(blk2, blk1))))))
+      }
+      if(verbose)
+        cat(sprintf(" --> %s\n", uniqueN(tmp$blkID)))
+    }
+    tmp[,blkID := as.numeric(as.factor(blkID))]
+    return(tmp)
+  }
+
+  ##############################################################################
+  # -- add hoc function to find hits in buffer
+  find_hitsInBuff <- function(hits, synBuff){
+    setDTthreads(1)
+    inBuffer <- ord1 <- ord2 <- isAnchor <- NULL
+    if(!"isAnchor" %in% colnames(hits))
+      stop("column name isAnchor must be in hits\n")
+    splHit <- split(hits, by = c("gen1","gen2","chr1","chr2"))
+    out <- rbindlist(lapply(splHit,  function(x){
+      if(any(x$isAnchor)){
+        nn <- with(x, frNN(x = data.frame(ord1, ord2), eps = synBuff))
+        wh <- unique(c(which(x$isAnchor), unlist(nn$id[x$isAnchor])))
+        x[,inBuffer := 1:.N %in% wh]
+        return(x)
+      }
+    }), fill = T)
+    if(!"inBuffer" %in% colnames(out)){
+      return(NULL)
+    }else{
+      return(subset(out, inBuffer))
+    }
+  }
+
+  ##############################################################################
+  # -- add hoc function to find hits in blocks
+  get_hitsInBlks <- function(blks, hits){
+    setDTthreads(1)
+    ord1 <- ord2 <- blkID <- NULL
+    splh <- split(hits, by = c("chr1","chr2","gen1","gen2"))
+    splb <- split(blks, by = c("chr1","chr2","gen1","gen2"))
+    splh <- splh[names(splb)]
+    hits <- rbindlist(lapply(1:nrow(blks), function(i){
+      y <- blks[i,]
+      x <- splh[[with(y, paste(chr1, chr2, gen1, gen2, sep = "."))]]
+      x <- subset(x, ord1 >= y$startOrd1 & ord1 <= y$endOrd1 &
+                    ord2 >= y$minOrd2 & ord2 <= y$maxOrd2)
+      x[,blkID := y$blkID]
+      return(x)
+    }))
+    return(hits)
+  }
+
   setDTthreads(1)
   ##############################################################################
   # 1. subset the hits to those that could potentially be block anchors
@@ -1496,410 +1898,3 @@ flag_synteny <- function(hits,
   }
   return(raw)
 }
-
-#' @title add_arrayReps2gff
-#' @description
-#' \code{add_arrayReps2gff} add_arrayReps2gff
-#' @rdname synteny
-#' @export
-add_arrayReps2gff <- function(gff,
-                              synBuff,
-                              ogColumn,
-                              verbose){
-  pull_synArray <- function(gff, synBuff, ogColumn){
-    rng <- NULL
-    setDTthreads(1)
-    # -- make global arrays from orthogroups
-    gff[,arrayID := gff[[ogColumn]]]
-    genome <- chr <- arrayID <- NULL
-    gff[,arrayID := sprintf("%s_%s_%s", genome, chr, arrayID)]
-    gff[,n := .N, by = "arrayID"]
-
-    # -- combine 1x ogs with ogs in regions < synBuff
-    n <- NULL
-    g1 <- subset(gff, n == 1)
-    g2 <- subset(gff, n > 1)
-
-    if(nrow(g2) > 1){
-      ord <- NULL
-      g2[,rng := diff(range(ord)),  by = "arrayID"]
-      g2[,clus := 1]
-      g1 <- rbind(g1, subset(g2, rng <= synBuff)[,colnames(g1), with = F])
-      g2 <- subset(g2, rng > synBuff)
-      if(nrow(g2) > 1){
-        # -- combine above with ogs without max gap < synBuff
-        ord <- NULL
-        g2[,rng := max(diff(ord[order(ord)])), by = "arrayID"]
-        g1 <- rbind(g1, subset(g2, rng <= synBuff)[,colnames(g1), with = F])
-        g2 <- subset(g2, rng > synBuff)
-
-        # -- split ogs with gaps
-        ord <- arrayID <- clus <- NULL
-        g2[,clus := dbscan(frNN(cbind(ord, ord), eps = synBuff), minPts = 1)$cluster,
-           by = "arrayID"]
-      }
-      g2[,arrayID := sprintf("%s_%s", arrayID, clus)]
-      gff <- rbind(g1, g2[,colnames(g1), with = F])
-    }
-    gff[,n := NULL]
-    return(gff)
-  }
-
-  pull_arrayRep <- function(gff){
-    med <- medbp <- rnk <- NULL
-    setDTthreads(1)
-    if(!"arrayID" %in% colnames(gff))
-      stop("Cannot find a column named arrayID ... can't add arrayReps\n")
-
-    if(!all(c("start", "ord", "pepLen") %in% colnames(gff)))
-      stop("cannot find start, ord and/or pepLen in data.table columns\n")
-
-    # -- split single and multi-member arrays
-    n <- genome <- ord <- NULL
-    gff[,n := .N, by = "arrayID"]
-    out <- subset(gff, n == 1)
-    out[,isArrayRep := TRUE]
-    tmp <- subset(gff, n > 1)
-    if(nrow(tmp) > 1){
-      setkey(tmp, genome, ord)
-
-      # -- calulate the distance to the median for each gene
-      ord <- start <- NULL
-      tmp[,`:=`(med = as.numeric(median(ord)),
-                medbp = as.numeric(median(start)))]
-      tmp[,`:=`(dist2med = abs(med - ord),
-                dist2bp = abs(medbp - start))]
-
-      # -- rank and choose representatives
-      dist2med <- dist2bp <- pepLen <- NULL
-      setorder(tmp, dist2med, dist2bp, -pepLen)
-      tmp[,rnk := 1:.N, by = "arrayID"]
-      tmp[,`:=`(isArrayRep = rnk == 1, rnk = NULL, dist2med = NULL,
-                dist2bp = NULL, med = NULL, medbp = NULL)]
-
-      # -- combine and return
-      out <- rbind(out, tmp)
-      out[,n := NULL]
-      genome <- ord <- NULL
-      setkey(out, genome, ord)
-    }
-    return(out)
-  }
-
-  # -- get collinear array IDs
-  setDTthreads(1)
-  arrayOrd <- NULL
-  ovf <- gff$ord; names(ovf) <- gff$ofID
-  gff <- data.table(gff)
-  gff <- pull_synArray(
-    gff = gff,
-    synBuff = synBuff,
-    ogColumn = ogColumn)
-
-  # -- add array representatives
-  gff <- pull_arrayRep(gff)
-  tmp <- data.table(gff)
-  no <- 0; ni <- 1
-  for(i in 1:10){
-    if(ni > no){
-      # -- get vector of gene order for array reps and convert order column
-      ni <- uniqueN(tmp$arrayID)
-      isArrayRep <- genome <- ord <- arrayID <- NULL
-      tmps <- subset(tmp, isArrayRep)
-      setkey(tmps, genome, ord)
-      tmps[,ord := 1:.N, by = "genome"]
-      ov <- tmps$ord; names(ov) <- tmps$arrayID
-      tmp[,ord := ov[arrayID]]
-
-      # -- re-calculate arrayIDs with new order
-      tmp <- pull_synArray(
-        gff = tmp,
-        synBuff = synBuff,
-        ogColumn = ogColumn)
-      tmp <- pull_arrayRep(tmp)
-      no <- uniqueN(tmp$arrayID)
-    }
-  }
-  gff <- data.table(tmp)
-
-  if(verbose){
-    cat("\tFound the following counts of arrays / genome:\n")
-    arrayID <- NULL
-    spl <- subset(gff, arrayID %in% subset(gff, duplicated(arrayID))$arrayID)
-    nu <- lapply(split(spl, by = "genome"), function(x)
-      cat(sprintf("\t\t%s: %s genes in %s collinear arrays\n",
-                  x$genome[1], nrow(x), uniqueN(x$arrayID))))
-  }
-
-  # -- adding in the array order here
-  ofID <- genome <- ord <- arrayID <- NULL
-  gff[,ord := ovf[ofID]]
-  setkey(gff, genome, ord)
-  gff[,arrayOrd := as.numeric(factor(arrayID, levels = unique(arrayID))),
-      by = "genome"]
-
-  # -- lower-memory coding of the arrays and OGs
-  arrayID <- globOG <- NULL
-  gff[,arrayID := as.integer(factor(arrayID, levels = unique(arrayID)))]
-  gff[,globOG := as.integer(factor(globOG, levels = unique(globOG)))]
-  return(gff)
-}
-
-#' @title add synteny-constrained orthogroups to gff
-#' @description
-#' \code{add_synOg2gff} add synteny-constrained orthogroups to gff
-#' @rdname synteny
-#' @importFrom parallel mclapply
-#' @export
-add_synOg2gff <- function(gff,
-                          gsParam,
-                          genomeIDs){
-
-  setDTthreads(1)
-  # -- find hits files
-  eg <- CJ(genomeIDs, genomeIDs)
-  fs <- file.path(gsParam$paths$results,
-                  sprintf("%s_%s_synHits.txt.gz",eg[[1]], eg[[2]]))
-  fs <- fs[file.exists(fs)]
-
-  # -- read all hits
-  nCores <- gsParam$params$nCores
-  setDTthreads(1)
-  ofID1 <- ofID2 <- isOg <- inBuffer <- NULL
-  hts <- rbindlist(lapply(fs, function(i){
-    x <- fread(
-      i, select = c("ofID1","ofID2","isOg","inBuffer"),
-      na.strings = c("","NA"), showProgress = F)
-    x <- subset(x, inBuffer & isOg & ofID1 != ofID2)
-    return(x[,c("ofID1", "ofID2")])
-  }))
-
-  # -- summarize by arrays
-  ofID1 <- ofID2 <- arrayID <- NULL
-  gff[,arrv := as.character(as.numeric(as.factor(arrayID)))]
-  av <- gff$arrv; names(av) <- gff$ofID
-  hts[,`:=`(a1 = as.character(av[ofID1]),
-            a2 = as.character(av[ofID2]))]
-  hts <- subset(hts, !is.na(a1) & !is.na(a2))
-
-  # -- convert to syntenic orthogroups
-  a1 <- a2 <- NULL
-  ic <- with(hts, clus_igraph(
-    id1 = c(a1, a2), id2 = c(a2, a1)))
-
-  # -- add in genes with missing synOgs
-  arrv <- NULL
-  tmp <- subset(gff, !arrv %in% as.character(names(ic)))
-  nc <- 1:uniqueN(tmp$arrv) + uniqueN(ic); names(nc) <- unique(tmp$arrv)
-  ic <- c(ic, nc)
-  gff[,`:=`(synOG = ic[as.character(arrv)], arrv = NULL)]
-  return(gff)
-}
-
-#' @title combine inblk and syn OGs
-#' @description
-#' \code{combine_inblkSynOG} combine inblk and syn OGs
-#' @rdname synteny
-#' @export
-combine_inblkSynOG <- function(genomeIDs,
-                               gff,
-                               gsParam){
-  setDTthreads(1)
-  genome <- NULL
-  gff <- subset(gff, genome %in% genomeIDs)
-  if(gsParam$params$verbose)
-    cat("Combining synteny-constrained and inblock orthogroups ...\n")
-
-  if(gsParam$params$verbose)
-    cat(sprintf("\tsyn OGs: %s, inblk OGs: %s",
-                uniqueN(gff$synOG, na.rm = T),
-                uniqueN(gff$inblkOG, na.rm = T)))
-  noInBlk <- all(is.na(gff$inblkOG))
-
-  inblkOG <- synOG <- NULL
-
-  if(noInBlk)
-    gff[,inblkOG := synOG]
-
-  ofID <- ofID1 <- ofID2 <- clus <- og <- combOG <- inblkOG <- synOG <- NULL
-  inblk <- gff[,list(ofID1 = ofID[-.N], ofID2 = ofID[-1]), by = "inblkOG"]
-  syn <- gff[,list(ofID1 = ofID[-.N], ofID2 = ofID[-1]), by = "synOG"]
-  u <- with(inblk, paste(ofID1, ofID2))
-
-  syn <- subset(syn, !paste(ofID1, ofID2) %in% u & ofID1 != ofID2)
-  tmp <- rbind(syn[,c("ofID1", "ofID2")], inblk[,c("ofID1", "ofID2")])
-  tmp[,clus := clus_igraph(ofID1, ofID2)]
-
-  ov <- with(tmp, c(clus, clus))
-  names(ov) <- with(tmp, c(ofID1, ofID2))
-
-  gff[,combOG := ov[ofID]]
-  nmis <- sum(is.na(gff$combOG))
-  mol <- max(gff$combOG, na.rm = T)
-  gff$combOG[is.na(gff$combOG)] <- (mol + 1):(mol + nmis)
-  gff[,combOG := as.integer(factor(combOG, levels = unique(combOG)))]
-
-  if(gsParam$params$verbose)
-    cat(sprintf(", combined OGs: %s\n",
-                uniqueN(gff$combOG)))
-  gff[,`:=`(og = combOG, combOG = NULL)]
-  if(noInBlk)
-    gff[,inblkOG := NA]
-  return(gff)
-}
-
-#' @title Split overlapping non-duplicated blocks
-#' @description
-#' \code{split_blks} function to deal with overlapping / interleafed blocks
-#' @rdname synteny
-#' @importFrom dbscan dbscan frNN
-#' @export
-split_blks <- function(hits, blkSize, verbose = F, maxIter = 5){
-  setDTthreads(1)
-  # -- function to count the overlapping hits
-  count_ovlHits <- function(hits, maxDup){
-    blkID <- i.blkID <- blk1 <- blk2 <- r1 <- r2 <- nOvlp <- totHits <- n1 <-
-      n2 <- NULL
-    bc <- calc_blkCoords(hits)
-    bc1 <- with(bc, data.table(
-      blkID = blkID, chr = chr1, start = startOrd1, end = endOrd1,
-      key = c("chr","start","end")))
-    bc2 <- with(bc, data.table(
-      blkID = blkID, chr = chr2, start = minOrd2, end = maxOrd2,
-      key = c("chr","start","end")))
-
-    # -- find non-self overlapping regions
-    fo1 <- subset(foverlaps(bc1, bc1), blkID != i.blkID)
-    fo2 <- subset(foverlaps(bc2, bc2), blkID != i.blkID)
-
-    # -- add overlapping info into an output object
-    out <- data.table(
-      blk1 = c(fo1$blkID, fo2$blkID),
-      blk2 = c(fo1$i.blkID, fo2$i.blkID))
-
-    # -- choose the non-repeated overlaps
-    u <- unique(c(out$blk1, out$blk2))
-    un <- order(u); names(un) <- u
-    out[,`:=`(r1 = un[blk1], r2 = un[blk2])]
-    out[,u := ifelse(r1 > r2,  paste(blk1, blk2), paste(blk2, blk1))]
-    out <- subset(out, !duplicated(u))
-    out[,`:=`(r1 = NULL, r2 = NULL, u = NULL)]
-    blkOvl <- subset(out, !duplicated(out))
-    blkOvl[,u := apply(.SD, 1, function(x) paste(x[order(x)], collapse = "_")),
-           .SDcols = c("blk1", "blk2")]
-    blkOvl <- subset(blkOvl, !duplicated(u))
-    blkOvl[,u := NULL]
-    tmp <- subset(hits, blkID %in% unique(c(blkOvl$blk1, blkOvl$blk2)))
-    spl <- split(tmp, by = "blkID")
-    blkOvl[,nOvlp := apply(blkOvl, 1, function(z){
-      x <- spl[[as.character(z[[1]])]]
-      y <- spl[[as.character(z[[2]])]]
-      return(sum(x$ofID1 %in% y$ofID1, x$ofID2 %in% y$ofID2,
-                 x$ofID1 %in% y$ofID1, x$ofID2 %in% y$ofID2))
-    })]
-    nv <- with(bc, nHits1 + nHits2); names(nv) <- bc$blkID
-    blkOvl[,`:=`(n1 = nv[as.character(blk1)],
-                 n2 = nv[as.character(blk2)])]
-    blkOvl[,totHits := n1 + n2]
-
-    setorder(blkOvl, -totHits)
-    return(subset(blkOvl, nOvlp <= maxDup))
-  }
-
-  spl_ovlblks <- function(blk1, blk2, hits, blkSize){
-    blkID <- isAnchor <- arrayOrd1 <- arrayOrd2 <- tmpb <- ord1 <- ord2 <- NULL
-    tmp <- subset(hits, blkID %in% c(blk1, blk2) & isAnchor)
-    tmp[,`:=`(ord1 = frank(arrayOrd1, ties.method = "dense"),
-              ord2 = frank(arrayOrd2, ties.method = "dense"))]
-    tmp[,tmpb := dbscan(frNN(cbind(ord1, ord2), eps = blkSize),
-                        minPts = blkSize)$cluster]
-    tmp <- subset(tmp, tmpb > 0)
-    tmp[,`:=`(blkID = paste(tmpb, blkID), tmpb = NULL)]
-    return(tmp)
-  }
-
-  isAnchor <- blk1 <- blk2 <- blkID <- NULL
-  tmp <- subset(hits, isAnchor)
-  runit <- T
-  niter <- 1
-  excl <- character()
-  while(niter < maxIter & runit){
-    if(verbose)
-      cat(sprintf("%s: %s", niter, uniqueN(tmp$blkID)))
-    niter <- niter + 1
-    novl <- count_ovlHits(hits = tmp, maxDup = blkSize)
-    novl <- subset(novl, !paste(blk1, blk2) %in% excl)
-    novl <- subset(novl, !blk1 %in% novl$blk1[duplicated(novl$blk1)])
-    novl <- subset(novl, !blk2 %in% novl$blk2[duplicated(novl$blk2)])
-    novl <- subset(novl, !blk1 %in% blk2)
-    novl <- subset(novl, !blk2 %in% blk1)
-    noovl <- subset(tmp, !blkID %in% c(novl$blk1, novl$blk2))
-    ovl <- subset(tmp, blkID %in% c(novl$blk1, novl$blk2))
-    if(nrow(ovl) < blkSize){
-      runit <- FALSE
-    }else{
-      ovls <- rbindlist(lapply(1:nrow(novl), function(k)
-        spl_ovlblks(
-          blk1 = novl$blk1[k], blk2 = novl$blk2[k],
-          hits = ovl, blkSize = ceiling(blkSize/2))))
-      tmp <- rbind(noovl, ovls)
-      excl <- unique(c(excl, with(novl, unique(
-        c(paste(blk1, blk2), paste(blk2, blk1))))))
-    }
-    if(verbose)
-      cat(sprintf(" --> %s\n", uniqueN(tmp$blkID)))
-  }
-  tmp[,blkID := as.numeric(as.factor(blkID))]
-  return(tmp)
-}
-
-
-#' @title pull hits within a buffer
-#' @description
-#' \code{find_hitsInBuff} pull hits within a buffer to any flagged with "isAnchor"
-#' @rdname synteny
-#' @importFrom dbscan dbscan frNN
-#' @export
-find_hitsInBuff <- function(hits, synBuff){
-  setDTthreads(1)
-  inBuffer <- ord1 <- ord2 <- isAnchor <- NULL
-  if(!"isAnchor" %in% colnames(hits))
-    stop("column name isAnchor must be in hits\n")
-  splHit <- split(hits, by = c("gen1","gen2","chr1","chr2"))
-  out <- rbindlist(lapply(splHit,  function(x){
-    if(any(x$isAnchor)){
-      nn <- with(x, frNN(x = data.frame(ord1, ord2), eps = synBuff))
-      wh <- unique(c(which(x$isAnchor), unlist(nn$id[x$isAnchor])))
-      x[,inBuffer := 1:.N %in% wh]
-      return(x)
-    }
-  }), fill = T)
-  if(!"inBuffer" %in% colnames(out)){
-    return(NULL)
-  }else{
-    return(subset(out, inBuffer))
-  }
-}
-
-#' @title pull hits within block coordinates
-#' @description
-#' \code{get_hitsInBlks} pull hits within block coordinates
-#' @rdname synteny
-#' @export
-get_hitsInBlks <- function(blks, hits){
-  setDTthreads(1)
-  ord1 <- ord2 <- blkID <- NULL
-  splh <- split(hits, by = c("chr1","chr2","gen1","gen2"))
-  splb <- split(blks, by = c("chr1","chr2","gen1","gen2"))
-  splh <- splh[names(splb)]
-  hits <- rbindlist(lapply(1:nrow(blks), function(i){
-    y <- blks[i,]
-    x <- splh[[with(y, paste(chr1, chr2, gen1, gen2, sep = "."))]]
-    x <- subset(x, ord1 >= y$startOrd1 & ord1 <= y$endOrd1 &
-                  ord2 >= y$minOrd2 & ord2 <= y$maxOrd2)
-    x[,blkID := y$blkID]
-    return(x)
-  }))
-  return(hits)
-}
-

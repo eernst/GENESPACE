@@ -54,16 +54,21 @@
 #'   genomeIDs = c("human","chimp","rhesus"),
 #'   speciesIDs = c("human","chimp","rhesus"),
 #'   versionIDs = c("human","chimp","rhesus"),
+#'   outgroup = NULL,
 #'   ploidy = rep(1,3),
 #'   diamondMode = "fast",
 #'   orthofinderMethod = "fast",
 #'   wd = runwd,
+#'   orthofinderInBlk = FALSE,
+#'   overwrite = F,
+#'   verbose = T,
 #'   nCores = 4,
 #'   minPepLen = 50,
 #'   gffString = "gff",
 #'   pepString = "pep",
 #'   path2orthofinder = "orthofinder",
-#'   path2mcscanx = "~/MCScanX",
+#'   path2diamond = "diamond",
+#'   path2mcscanx = "~/Documents/comparative_genomics/programs/MCScanX",
 #'   rawGenomeDir = file.path(runwd, "rawGenomes"))
 #'
 #' # -- in the example dataset, the raw NCBI annotations have been parsed and
@@ -93,7 +98,8 @@
 #' @export
 parse_phytozome <- function(gsParam, overwrite = F, genomeIDs = NULL){
 
-
+  ##############################################################################
+  # -- ad hoc function to parse phytozome-formatted annotations
   pytz_fun <- function(gffIn, gffOut, pepIn, pepOut, verbose, minPepLen){
     Name <- seqid <- start <- end <- NULL
     if(verbose)
@@ -200,6 +206,8 @@ parse_ncbi <- function(gsParam, overwrite = F, genomeIDs = NULL){
   gene_biotype <- gene <- seqid <- chromosome <- end <- start <- isBest <- NULL
   chr <- nbp <- nGene <- NULL
 
+  ##############################################################################
+  # -- ad hoc function to parse NCBI annotations
   ncbi_fun <- function(gffIn, gffOut, pepIn, pepOut, verbose, minPepLen){
     if(verbose)
       cat("\tReading gff ... ")
@@ -332,6 +340,17 @@ parse_annotations <- function(
   troubleshoot = FALSE){
 
   nbp <- end <- start <- id <- ord <- NULL
+
+  ##############################################################################
+  # -- ad hoc function to check if an argument is logical
+  check_logicalArg <- function(x){
+    x <- as.logical(x)
+    if(is.null(x)) stop(x, "must be logical\n")
+    if(is.na(x)) stop(x, "must be logical\n")
+    if(length(x) == 0) stop(x, "must be logical\n")
+    if(length(x) > 1) x <- x[1]
+    return(x)
+  }
 
   if(is.null(genomeIDs))
     genomeIDs <- gsParam$genomes$genomeIDs

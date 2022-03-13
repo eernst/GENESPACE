@@ -82,6 +82,7 @@
 #' }
 #' @import R.utils
 #' @import data.table
+#' @importFrom parallel detectCores
 #' @export
 init_genespace <- function(genomeIDs,
                            wd,
@@ -102,6 +103,17 @@ init_genespace <- function(genomeIDs,
                            gffString = "gff",
                            pepString = "pep|prot",
                            verbose = TRUE){
+
+  ##############################################################################
+  # -- ad hoc function to check if an argument is logical
+  check_logicalArg <- function(x){
+    x <- as.logical(x)
+    if(is.null(x)) stop(x, "must be logical\n")
+    if(is.na(x)) stop(x, "must be logical\n")
+    if(length(x) == 0) stop(x, "must be logical\n")
+    if(length(x) > 1) x <- x[1]
+    return(x)
+  }
 
   ##############################################################################
   # -- ad hoc function to build the skeleton parameters

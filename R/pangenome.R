@@ -362,6 +362,58 @@ pangenome <- function(gsParam,
                             nCores,
                             verbose){
 
+    interp_linear <- function(refOrd,
+                              toInterpOrd){
+
+      # -- convert to numeric, to ensure that NAs are correctly specified
+      dt <- x <- y <- rl <- toInterp <- ip <- NULL
+      ord1 <- as.numeric(refOrd)
+      ord2 <- as.numeric(toInterpOrd)
+      if(all(is.na(ord1)))
+        stop("refOrd (achors) is all NAs. Can't proceed\n")
+      if(any(is.na(ord2)))
+        stop("found NAs in toInterpOrd (hits to interpolate) - not permitted\n")
+
+      # -- if no NAs, just spit back ord2
+      if(all(!is.na(ord1))){
+        return(ord1)
+      }else{
+        # make into a data table with index and whether or not to interpolate
+        dt <- data.table(
+          x = ord1, y = ord2, index = 1:length(ord1), toInterp = is.na(ord1))
+        dto <- data.table(dt)
+        # order by anchor positions (ord1, x)
+        setkey(dt, y)
+
+        # -- find runs of NAs in y
+        dt[,rl := add_rle(toInterp, which = "id")]
+
+        # -- pull runs to infer (not first and last if they are NAs)
+        interpThis <- subset(dt, !(toInterp & rl %in% c(1, max(rl))))
+
+        # -- return original data if no bounding non-na runs and no internal NAs
+        if(uniqueN(interpThis$rl[interpThis$toInterp]) < 1){
+          return(ord1)
+        }else{
+          # -- get max right and min left values for each non-missing run
+          minr <- with(subset(interpThis, !toInterp), tapply(x, rl, min))
+          maxl <- with(subset(interpThis, !toInterp), tapply(x, rl, max))
+
+          # -- linear interpolation of runs of NAs from bounding values
+          out <- subset(interpThis, toInterp)
+          out[,ip := seq(from = maxl[as.character(rl-1)],
+                         to = minr[as.character(rl+1)],
+                         length.out = .N+2)[-c(1, .N+2)],
+              by = "rl"]
+
+          # -- fill NAs and return
+          dto$x <- as.numeric(dto$x)
+          dto$x[out$index] <- out$ip
+          return(dto$x)
+        }
+      }
+    }
+
     isArrayRep <- index <- isSelf <- ind1 <- ind2 <- ind2 <- interpRefOrd <-
       ord1 <- useAsAnch <- ord2 <- clus <- ord2 <- ofID2 <- interpRefOrd <-
       ord1 <- interpRefOrd <- ofID <- refChr <- NULL

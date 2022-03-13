@@ -124,16 +124,21 @@ gpar <- init_genespace(
   genomeIDs = c("human","chimp","rhesus"),
   speciesIDs = c("human","chimp","rhesus"),
   versionIDs = c("human","chimp","rhesus"),
+  outgroup = NULL,
   ploidy = rep(1,3),
   diamondMode = "fast",
   orthofinderMethod = "fast",
   wd = runwd,
+  orthofinderInBlk = FALSE,
+  overwrite = F,
+  verbose = T,
   nCores = 4,
   minPepLen = 50,
   gffString = "gff",
   pepString = "pep",
   path2orthofinder = "orthofinder",
-  path2mcscanx = "~/MCScanX",
+  path2diamond = "diamond",
+  path2mcscanx = "~/Documents/comparative_genomics/programs/MCScanX",
   rawGenomeDir = file.path(runwd, "rawGenomes"))
 
 # -- in the example dataset, the raw NCBI annotations have been parsed and
