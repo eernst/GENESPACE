@@ -583,13 +583,13 @@ plot_riparianHits <- function(gsParam,
   gf[,genome := factor(genome, levels = genomeIDs)]
   setkey(gf, genome, ord)
   nGenes <- gf[,list(n = .N, medPos = mean(ord)), by = c("genome","chr")]
-  print(paste0("HERE1:\n", nGenes))
+  cat(paste0("HERE1:\n", nGenes))
   #nGenes[,chrn := as.numeric(gsub("[^0-9]", "", chr))]
   nGenes[,chrn := gsub(".*([0-9]+.*)", "\\1", chr)]
-  print(paste0("HERE2:\n", nGenes))
+  cat(paste0("HERE2:\n", nGenes))
   nGenes$chrn[is.na(nGenes$chrn)] <- 0
   setorder(nGenes, genome, chrn, -n, chr, medPos)
-  print(paste0("HERE3:\n", nGenes))
+  cat(paste0("HERE3:\n", nGenes))
   chrord <- with(nGenes, paste(genome, chr))
   gf[,u := factor(paste(genome, chr), levels = chrord)]
   setkey(gf, genome, u, ord)
